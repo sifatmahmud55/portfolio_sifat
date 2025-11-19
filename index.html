@@ -1541,7 +1541,8 @@
                     <!-- grouped Contact + Show CV so they sit side-by-side -->
                     <div class="contact-group">
                         <a href="#contact" class="btn btn-outline"><i class="fas fa-paper-plane"></i> Contact Me</a>
-                        <button id="show-cv" class="btn btn-outline" aria-haspopup="dialog" title="Open CV"><i class="fas fa-file-pdf"></i> Show CV</button>
+                        <!-- removed nested <a>, added aria-expanded and class for CTA -->
+                        <button id="show-cv" class="btn btn-cv" aria-haspopup="dialog" aria-expanded="false" title="Download CV"><i class="fas fa-file-pdf"></i> Download CV</button>
                     </div>
                 </div>
             </div>
@@ -2296,7 +2297,7 @@
         // Check on scroll
         window.addEventListener('scroll', animateOnScroll);
 
-        // CV modal behaviour
+        // CV modal behaviour (robust blob download with fallback + preview)
         (function() {
             const showBtn = document.getElementById('show-cv');
             const overlay = document.getElementById('cvModalOverlay');
@@ -2304,30 +2305,97 @@
             const cvFrame = document.getElementById('cvFrame');
             const cvDownload = document.getElementById('cvDownload');
 
-            const pdfPath = 'assets/Sifat_CV.pdf'; // update path if needed
+            const pdfPath = 'assets/Sifat_CV.pdf'; // ensure this path is correct on your server
+            const downloadFilename = 'cv_sifat.pdf';
 
             function openModal() {
                 if (!cvFrame.getAttribute('src')) cvFrame.setAttribute('src', pdfPath);
                 overlay.classList.add('open');
                 overlay.setAttribute('aria-hidden', 'false');
                 document.body.style.overflow = 'hidden';
+                showBtn && showBtn.setAttribute('aria-expanded', 'true');
             }
 
             function closeModal() {
                 overlay.classList.remove('open');
                 overlay.setAttribute('aria-hidden', 'true');
                 document.body.style.overflow = '';
-                // optional: cvFrame.setAttribute('src', '');
+                showBtn && showBtn.setAttribute('aria-expanded', 'false');
             }
 
+            // try fetching the PDF and forcing a download via blob (works even if server doesn't set content-disposition)
+            async function downloadBlob(url, filename) {
+                try {
+                    const res = await fetch(url, { cache: 'no-store' });
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+                    if (!contentType.includes('pdf')) console.warn('content-type', contentType);
+                    const blob = await res.blob();
+                    const blobUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = filename;
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
+                    return true;
+                } catch (err) {
+                    console.warn('downloadBlob failed:', err);
+                    return false;
+                }
+            }
+
+            // fallback: create an anchor (may open in new tab or download depending on browser/server)
+            function anchorFallback(url, filename) {
+                try {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename; // may be ignored cross-origin
+                    a.target = '_blank';
+                    a.rel = 'noopener';
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    return true;
+                } catch (err) {
+                    console.warn('anchorFallback failed:', err);
+                    return false;
+                }
+            }
+
+            // unified routine used by both controls
+            async function startDownloadAndPreview() {
+                // 1) try blob download
+                const ok = await downloadBlob(pdfPath, downloadFilename);
+                if (!ok) {
+                    // 2) fallback to anchor/open
+                    const fallbackOk = anchorFallback(pdfPath, downloadFilename);
+                    if (!fallbackOk) {
+                        alert('Could not download the CV. Verify the file exists at "' + pdfPath + '" and is accessible.');
+                        return;
+                    }
+                }
+
+                // show preview modal on desktop after a short delay so download has started
+                if (window.innerWidth > 480) setTimeout(openModal, 300);
+            }
+
+            // wire up button and modal download control
             showBtn && showBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                if (window.innerWidth <= 480) {
-                    window.open(pdfPath, '_blank');
-                    return;
-                }
-                openModal();
+                startDownloadAndPreview();
             });
+
+            if (cvDownload) {
+                cvDownload.removeAttribute('target'); // keep consistent behavior
+                cvDownload.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    startDownloadAndPreview();
+                });
+            }
 
             closeBtn && closeBtn.addEventListener('click', closeModal);
 
@@ -2338,10 +2406,8 @@
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal();
             });
-
-            cvDownload && (cvDownload.href = pdfPath);
         })();
-        
+
         // add tree-node animation block into animateOnScroll or run here on scroll
         const animateTreeNodes = () => {
             document.querySelectorAll('.tree-node').forEach((node, index) => {
@@ -2390,4 +2456,3 @@
     </script>
 </body>
 </html>
-
